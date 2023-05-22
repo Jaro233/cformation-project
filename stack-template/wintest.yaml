@@ -1,0 +1,85 @@
+Parameters:
+  RoleTempName: 
+    Description: Name of the base stack with all infra resources
+    Type: String
+    Default: cicds3role
+  JenkStackName:
+    Description: Name of the base stack with all infra resources
+    Type: String
+    Default: jenk
+  MyIP:
+    Type: String
+  KeyName:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: t2.small
+
+Mappings:
+  AmiRegionMap:
+    us-east-1:
+      AMI: ami-0ab05a04b66a879af
+    us-east-2:
+      AMI: ami-05a6ffc039efb874d
+    us-west-1:
+      AMI: ami-0bba7e961f185c2e2
+    us-west-2:
+      AMI: ami-0bba7e961f185c2e2
+    eu-central-1:
+      AMI: ami-054348ac63eaf375f
+
+Resources:
+  WintestInst:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AmiRegionMap
+        - !Ref AWS::Region
+        - AMI
+      Tags:
+        - Key: "Name"
+          Value: !Join ["", ["Wintest in ", !Ref AWS::Region]]
+      SecurityGroups:
+        - !Ref WintestSG
+      IamInstanceProfile:
+        Fn::ImportValue:
+          Fn::Sub: "${RoleTempName}-VPS3RoleProfileName"
+      UserData:
+        Fn::Base64:
+          !Sub |
+            <powershell>
+            Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+            choco install jdk8 -y 
+            choco install mvn -y 
+            choco install googlechrome -y
+            choco install git -y
+            mkdir C:\jenkins
+            </powershell>
+  WintestSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh & http from myip
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: !Ref MyIP
+  WintestSGIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt WintestSG.GroupId
+      IpProtocol: -1
+      SourceSecurityGroupId: 
+        Fn::ImportValue: 
+          Fn::Sub: "${JenkStackName}-SGID"
+  JenkinsSGIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: 
+        Fn::ImportValue:
+          Fn::Sub: "${JenkStackName}-SGID"
+      IpProtocol: -1
+      SourceSecurityGroupId: 
+        !GetAtt WintestSG.GroupId
